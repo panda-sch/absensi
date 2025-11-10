@@ -1,0 +1,726 @@
+<!DOCTYPE html>
+<html lang="id">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Aplikasi Absensi QR Siswa</title>
+    <link rel="icon" type="image/png" href="logo.png">
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/html5-qrcode" type="text/javascript"></script>
+    <style>
+        /* Sedikit style tambahan */
+        
+        body {
+            font-family: 'Inter', sans-serif;
+        }
+        
+        #qr-reader {
+            width: 100%;
+            border: 2px dashed #cbd5e1;
+            border-radius: 8px;
+        }
+        /* Sembunyikan footer scanner */
+        
+        #qr-reader__dashboard_section_csr>div>button {
+            display: none !important;
+        }
+        /* CSS untuk Modal (Pop-up Konfirmasi) */
+        
+        .modal {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0, 0, 0, 0.5);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            z-index: 1000;
+        }
+        
+        .modal-content {
+            background-color: white;
+            padding: 30px;
+            border-radius: 12px;
+            box-shadow: 0 4px 6px rgba(0, 0, 0, 0.1);
+            max-width: 90%;
+            width: 400px;
+            text-align: center;
+            /* Transisi untuk fade-in/out dan scale */
+            transition: opacity 0.3s ease-out, transform 0.3s ease-out;
+        }
+        /* State untuk saat modal muncul */
+        
+        .modal:not(.hidden) .modal-content {
+            opacity: 1;
+            transform: scale(1);
+        }
+        /* State awal untuk fade-in */
+        
+        .modal.hidden .modal-content {
+            opacity: 0;
+            transform: scale(0.9);
+        }
+        /* State untuk fade-out */
+        
+        .modal.fade-out .modal-content {
+            opacity: 0;
+            transform: scale(0.95);
+        }
+        /* [BARU] CSS Responsif untuk Tabel (Opsi 1: Overflow X) */
+        /* Sudah dihandle oleh <div class="overflow-x-auto"> di HTML */
+        /* [BARU] Gaya untuk tab button di layar kecil */
+        
+        .tab-button {
+            white-space: nowrap;
+            /* Mencegah teks terpotong */
+        }
+        /* [BARU] CSS untuk membuat form filter responsif */
+        
+        #filter-controls .grid {
+            /* Di layar kecil (mobile), buat tombol filter di bawah input */
+            grid-template-columns: 1fr;
+        }
+        
+        @media (min-width: 768px) {
+            /* Di layar md ke atas */
+            #filter-controls .grid {
+                grid-template-columns: repeat(3, 1fr);
+            }
+        }
+    </style>
+</head>
+
+<body class="bg-gray-100 min-h-screen">
+
+    <div class="container mx-auto p-4 max-w-3xl">
+        <header class="bg-white p-6 rounded-xl shadow-lg mb-6">
+            <h1 class="text-3xl font-bold text-center text-blue-700">Sistem Absensi QR Siswa</h1>
+            <p class="text-center text-gray-600">Aplikasi demo menggunakan Local Storage</p>
+        </header>
+
+        <div class="mb-4 bg-white rounded-lg shadow-sm">
+            <nav class="flex p-2">
+                <button id="btn-tab-scanner" class="tab-button flex-grow text-center py-3 px-2 sm:px-4 rounded-lg font-medium text-white bg-blue-600" onclick="showView('scanner')">
+                    Scan Absensi
+                </button>
+                <button id="btn-tab-admin" class="tab-button flex-grow text-center py-3 px-2 sm:px-4 rounded-lg font-medium text-gray-700" onclick="showView('admin')">
+                    Manajemen & Rekap Data
+                </button>
+            </nav>
+        </div>
+
+        <main id="view-scanner" class="space-y-6">
+            <div class="bg-white p-6 rounded-xl shadow-lg">
+                <h2 class="text-2xl font-semibold text-center mb-4">Pindai QR Code Siswa</h2>
+                <div id="qr-reader" class="mx-auto max-w-sm"></div>
+
+                <button id="start-scan-btn" class="mt-4 w-full bg-blue-500 text-white py-2 px-4 rounded-lg hover:bg-blue-600 transition duration-300">
+                    Mulai Scan (jika kamera tidak aktif)
+                </button>
+
+                <div class="my-4 flex items-center justify-center">
+                    <span class="border-b border-gray-300 flex-grow"></span>
+                    <span class="px-3 text-gray-500 text-sm">ATAU</span>
+                    <span class="border-b border-gray-300 flex-grow"></span>
+                </div>
+
+                <div>
+                    <label for="qr-file-input" class="block text-sm font-medium text-gray-700 mb-2 text-center">
+                        Upload Gambar QR Code
+                    </label>
+                    <input id="qr-file-input" type="file" accept="image/*" class="mt-1 block w-full text-sm text-gray-500
+                        file:mr-4 file:py-2 file:px-4
+                        file:rounded-lg file:border-0
+                        file:text-sm file:font-semibold
+                        file:bg-blue-50 file:text-blue-700
+                        hover:file:bg-blue-100 cursor-pointer
+                    ">
+                </div>
+
+            </div>
+
+            <div id="scan-result" class="bg-white p-6 rounded-xl shadow-lg hidden">
+                <h3 class="text-xl font-semibold mb-3 text-center">Hasil Pindai Terakhir</h3>
+                <div id="result-content" class="text-center">
+                </div>
+            </div>
+        </main>
+
+        <main id="view-admin" class="space-y-6 hidden">
+            <div id="filter-controls" class="bg-white p-6 rounded-xl shadow-lg">
+                <h2 class="text-2xl font-semibold mb-4">Filter Data Absensi</h2>
+                <div class="grid grid-cols-1 md:grid-cols-3 gap-4">
+                    <div>
+                        <label for="filter-start-date" class="block text-sm font-medium text-gray-700">Dari Tanggal</label>
+                        <input type="date" id="filter-start-date" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500">
+                    </div>
+                    <div>
+                        <label for="filter-end-date" class="block text-sm font-medium text-gray-700">Sampai Tanggal</label>
+                        <input type="date" id="filter-end-date" class="mt-1 block w-full rounded-md border-gray-300 shadow-sm focus:border-blue-500 focus:ring-blue-500">
+                    </div>
+                    <div class="md:flex md:items-end">
+                        <button id="btn-filter" class="w-full bg-blue-600 text-white py-2 px-4 rounded-lg hover:bg-blue-700 transition duration-300">
+                            Terapkan Filter
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <div class="bg-white p-6 rounded-xl shadow-lg">
+                <div class="flex justify-between items-center mb-4 flex-wrap gap-3">
+                    <h2 class="text-2xl font-semibold">Rekap Data Absensi</h2>
+                    <div class="flex flex-wrap gap-2">
+                        <button id="btn-export-csv" class="bg-green-600 text-white py-2 px-4 rounded-lg hover:bg-green-700 transition duration-300 text-sm font-medium">
+                            Ekspor ke CSV
+                        </button>
+                        <button id="btn-delete-all" onclick="showDeleteConfirmModal('ALL')" class="bg-red-600 text-white py-2 px-4 rounded-lg hover:bg-red-700 transition duration-300 text-sm font-medium">
+                            Hapus Semua
+                        </button>
+                    </div>
+                </div>
+
+                <div class="overflow-x-auto">
+                    <table class="min-w-full divide-y divide-gray-200">
+                        <thead class="bg-gray-50">
+                            <tr>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-800 uppercase tracking-wider">ID Siswa</th>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-800 uppercase tracking-wider">Nama Siswa</th>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-800 uppercase tracking-wider">Kelas/Jurusan</th>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-800 uppercase tracking-wider">Tanggal</th>
+                                <th class="px-6 py-3 text-left text-xs font-medium text-gray-800 uppercase tracking-wider">Waktu</th>
+                            </tr>
+                        </thead>
+                        <tbody id="attendance-table-body" class="bg-white divide-y divide-gray-200">
+                            <tr>
+                                <td colspan="5" class="px-6 py-4 text-center text-gray-500">Tidak ada data.</td>
+                            </tr>
+                        </tbody>
+                    </table>
+                </div>
+            </div>
+        </main>
+    </div>
+
+    <div id="absent-modal" class="modal hidden fade-out">
+        <div class="modal-content">
+            <div id="modal-icon" class="text-4xl mb-4"></div>
+            <h3 id="modal-title" class="text-xl font-bold mb-2"></h3>
+            <p id="modal-message" class="text-gray-700 mb-6"></p>
+            <button onclick="closeModal()" class="bg-blue-600 text-white py-2 px-6 rounded-lg hover:bg-blue-700 transition duration-300">
+                Tutup
+            </button>
+        </div>
+    </div>
+
+    <div id="delete-confirm-modal" class="modal hidden">
+        <div class="modal-content bg-red-50 border border-red-200">
+            <div class="text-red-600 text-4xl mb-4">⚠️</div>
+            <h3 id="delete-modal-title" class="text-xl font-bold mb-2 text-red-700">Konfirmasi Penghapusan Data</h3>
+            <p id="delete-modal-message" class="text-gray-800 mb-6">Anda yakin ingin menghapus data ini? Aksi ini tidak dapat dibatalkan.</p>
+            <div class="flex flex-wrap justify-center gap-4">
+                <button id="execute-delete-btn" onclick="executeDeleteAll()" class="bg-red-600 text-white py-2 px-6 rounded-lg hover:bg-red-700 transition duration-300">
+                    Ya, Hapus
+                </button>
+                <button onclick="closeDeleteModal()" class="bg-gray-300 text-gray-800 py-2 px-6 rounded-lg hover:bg-gray-400 transition duration-300">
+                    Batal
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <script>
+        // ===================================
+        //     KONFIGURASI & DATABASE MOCK
+        // ===================================
+
+        // [UPDATE] Tambahkan data kelas/jurusan ke STUDENT_DB
+        const STUDENT_DB = {
+            "SISWA-001": {
+                name: "Budi Santoso",
+                class: "XII RPL"
+            },
+            "SISWA-002": {
+                name: "Citra Lestari",
+                class: "XI AKL"
+            },
+            "SISWA-003": {
+                name: "Ahmad Dahlan",
+                class: "X TKJ"
+            },
+            "SISWA-004": {
+                name: "Dewi Anggraini",
+                class: "XII RPL"
+            },
+            "SISWA-005": {
+                name: "Eka Wijaya",
+                class: "XI AKL"
+            }
+        };
+        const STORAGE_KEY = "attendanceLog";
+
+        // Variabel global
+        let html5QrCode;
+        let lastScanResult = null;
+        let deletionTargetTimestamp = null;
+
+        // ===================================
+        //     LOGIKA MODAL (Pop-up)
+        // ===================================
+
+        function closeSmoothly() {
+            const modal = document.getElementById('absent-modal');
+            modal.classList.add('fade-out');
+            setTimeout(() => {
+                modal.classList.add('hidden');
+                modal.classList.remove('fade-out');
+            }, 300);
+        }
+
+        function closeModal() {
+            const modal = document.getElementById('absent-modal');
+            modal.classList.add('hidden');
+            modal.classList.remove('fade-out');
+        }
+
+        function showModal(type, title, message) {
+            const modal = document.getElementById('absent-modal');
+            const iconDiv = document.getElementById('modal-icon');
+            const titleH3 = document.getElementById('modal-title');
+            const messageP = document.getElementById('modal-message');
+
+            modal.classList.remove('hidden', 'fade-out');
+
+            if (type === 'success') {
+                iconDiv.innerHTML = '<span class="text-green-600">✅</span>';
+                titleH3.className = 'text-xl font-bold mb-2 text-green-700';
+                setTimeout(closeSmoothly, 3000); // Tutup otomatis setelah 3 detik
+            } else { // error
+                iconDiv.innerHTML = '<span class="text-red-600">❌</span>';
+                titleH3.className = 'text-xl font-bold mb-2 text-red-700';
+            }
+
+            titleH3.textContent = title;
+            messageP.textContent = message;
+        }
+
+        /**
+         * Menampilkan modal konfirmasi hapus, baik untuk semua data ('ALL') atau satu record.
+         * @param {string} timestamp - 'ALL' atau timestamp record yang akan dihapus.
+         * @param {string} [studentName] - Nama siswa (hanya untuk hapus per siswa).
+         */
+        function showDeleteConfirmModal(timestamp, studentName = '') {
+            const modal = document.getElementById('delete-confirm-modal');
+            const titleH3 = document.getElementById('delete-modal-title');
+            const messageP = document.getElementById('delete-modal-message');
+            const executeButton = document.getElementById('execute-delete-btn');
+
+            deletionTargetTimestamp = timestamp; // Set global target
+
+            if (timestamp === 'ALL') {
+                titleH3.textContent = "Konfirmasi Penghapusan Data MASAL";
+                messageP.innerHTML = "Anda yakin ingin menghapus **SEMUA** data absensi? Aksi ini tidak dapat dibatalkan.";
+                executeButton.setAttribute('onclick', 'executeDeleteAll()');
+                executeButton.textContent = "Ya, Hapus Semua";
+            } else {
+                titleH3.textContent = `Konfirmasi Hapus Absensi`;
+                messageP.innerHTML = `Anda yakin ingin menghapus absensi untuk **${studentName}**?`;
+                executeButton.setAttribute('onclick', 'executeDeleteSingle()');
+                executeButton.textContent = "Ya, Hapus";
+            }
+
+            modal.classList.remove('hidden');
+        }
+
+        function closeDeleteModal() {
+            document.getElementById('delete-confirm-modal').classList.add('hidden');
+            deletionTargetTimestamp = null;
+        }
+
+        function executeDeleteAll() {
+            closeDeleteModal();
+            deleteAllAttendance();
+        }
+
+        // Fungsi eksekusi hapus per siswa (dipanggil setelah konfirmasi)
+        function executeDeleteSingle() {
+            closeDeleteModal();
+            if (deletionTargetTimestamp) {
+                deleteAttendance(deletionTargetTimestamp);
+            }
+        }
+
+        // ===================================
+        //     LOGIKA NAVIGASI VIEW
+        // ===================================
+
+        const scannerView = document.getElementById('view-scanner');
+        const adminView = document.getElementById('view-admin');
+        const btnTabScanner = document.getElementById('btn-tab-scanner');
+        const btnTabAdmin = document.getElementById('btn-tab-admin');
+
+        function showView(viewName) {
+            if (viewName === 'scanner') {
+                scannerView.classList.remove('hidden');
+                adminView.classList.add('hidden');
+                btnTabScanner.classList.add('bg-blue-600', 'text-white');
+                btnTabScanner.classList.remove('text-gray-700');
+                btnTabAdmin.classList.add('text-gray-700');
+                btnTabAdmin.classList.remove('bg-blue-600', 'text-white');
+            } else {
+                scannerView.classList.add('hidden');
+                adminView.classList.remove('hidden');
+                btnTabScanner.classList.add('text-gray-700');
+                btnTabScanner.classList.remove('bg-blue-600', 'text-white');
+                btnTabAdmin.classList.add('bg-blue-600', 'text-white');
+                btnTabAdmin.classList.remove('text-gray-700');
+                stopScanner();
+                loadAdminData();
+            }
+        }
+
+        // ===================================
+        //     LOGIKA PEMROSESAN HASIL SCAN
+        // ===================================
+
+        /**
+         * Fungsi ini dipanggil baik oleh kamera scanner ATAU file upload
+         * untuk memproses data QR yang berhasil dibaca.
+         */
+        function processScanResult(decodedText) {
+            console.log(`Hasil Pindai: ${decodedText}`);
+
+            // [UPDATE] Ambil objek siswa dari DB
+            const studentData = STUDENT_DB[decodedText];
+
+            if (studentData) {
+                // Siswa ditemukan
+                const timestamp = new Date();
+                const record = {
+                    studentId: decodedText,
+                    studentName: studentData.name, // [UPDATE] Ambil nama dari objek
+                    studentClass: studentData.class, // [BARU] Simpan kelas
+                    timestamp: timestamp.toISOString()
+                };
+
+                saveAttendance(record);
+
+                // Tampilkan Modal Sukses (akan tertutup otomatis dengan smooth)
+                showModal(
+                    'success',
+                    'Absensi Berhasil!',
+                    `${studentData.name} (${studentData.class}) telah tercatat pada ${timestamp.toLocaleTimeString('id-ID')}.`
+                );
+
+            } else {
+                // Siswa tidak ditemukan / QR tidak valid
+                // Tampilkan Modal Gagal
+                showModal(
+                    'error',
+                    'Absensi Gagal!',
+                    `QR Code tidak valid atau siswa tidak terdaftar. Data QR: ${decodedText}`
+                );
+            }
+        }
+
+
+        // ===================================
+        //     LOGIKA SCANNER QR (KAMERA)
+        // ===================================
+
+        // Fungsi callback saat scan kamera berhasil
+        function onScanSuccess(decodedText, decodedResult) {
+            // Mencegah scan berulang untuk hasil yang sama dari KAMERA
+            if (decodedText === lastScanResult) {
+                return;
+            }
+            lastScanResult = decodedText; // Set lock
+
+            // Panggil prosesor utama
+            processScanResult(decodedText);
+
+            // Atur timer untuk BUKA lock HANYA untuk scanner kamera
+            setTimeout(() => {
+                lastScanResult = null;
+            }, 5000); // Waktu lock
+        }
+
+        // Fungsi callback saat scan kamera gagal (opsional)
+        function onScanFailure(error) {
+            // console.warn(`Scan error: ${error}`);
+        }
+
+        function startScanner() {
+            // Hanya inisialisasi jika belum ada
+            if (!html5QrCode) {
+                html5QrCode = new Html5Qrcode("qr-reader");
+            }
+
+            // Periksa apakah sudah scanning. Jika sudah, jangan start lagi.
+            if (html5QrCode.isScanning) {
+                console.log("Scanner sudah berjalan. Tidak perlu memulai ulang.");
+                return;
+            }
+
+            const config = {
+                fps: 10,
+                qrbox: {
+                    width: 250,
+                    height: 250
+                }
+            };
+
+            html5QrCode.start({
+                    facingMode: "environment"
+                }, // Kamera belakang
+                config,
+                onScanSuccess,
+                onScanFailure
+            ).catch(err => {
+                console.error("Gagal memulai scanner:", err);
+                // Menampilkan pesan error di div qr-reader jika gagal start
+                if (document.getElementById('view-scanner').classList.contains('hidden') === false) {
+                    document.getElementById('qr-reader').innerHTML = `
+                        <p class="text-center text-red-600 p-4">
+                            Tidak dapat mengakses kamera. Pastikan Anda memberikan izin kamera.
+                        </p>
+                     `;
+                }
+            });
+        }
+
+        function stopScanner() {
+            if (html5QrCode && html5QrCode.isScanning) {
+                // Return promise agar kita bisa 'await'
+                return html5QrCode.stop().then(() => {
+                    // Hapus konten di qr-reader setelah stop agar tidak terlihat seperti error
+                    document.getElementById('qr-reader').innerHTML = '';
+                    console.log("QR Scanner dihentikan.");
+                }).catch(err => {
+                    console.error("Gagal menghentikan scanner:", err);
+                    // Tetap resolve agar tidak memblokir alur
+                    return Promise.resolve();
+                });
+            }
+            // Return promise yang sudah resolve jika tidak sedang scan
+            return Promise.resolve();
+        }
+
+        // ===================================
+        //     LOGIKA PENYIMPANAN DATA
+        // ===================================
+
+        function getAttendanceLog() {
+            const log = localStorage.getItem(STORAGE_KEY);
+            return log ? JSON.parse(log) : [];
+        }
+
+        function saveAttendance(record) {
+            const log = getAttendanceLog();
+            log.push(record);
+            log.sort((a, b) => new Date(b.timestamp) - new Date(a.timestamp));
+            localStorage.setItem(STORAGE_KEY, JSON.stringify(log));
+        }
+
+        /**
+         * Menghapus semua data absensi dari Local Storage.
+         */
+        function deleteAllAttendance() {
+            localStorage.removeItem(STORAGE_KEY);
+            loadAdminData(); // Muat ulang tabel admin
+            showModal('success', 'Berhasil!', 'Semua data absensi telah dihapus.');
+        }
+
+        /**
+         * Menghapus satu data absensi berdasarkan timestamp.
+         * FUNGSI INI DIPANGGIL SAAT KLIK 'YA, HAPUS' DI MODAL KONFIRMASI.
+         * @param {string} timestamp - Waktu unik absensi.
+         */
+        // [UPDATE] Hapus fungsi ini karena kolom 'Aksi' dan tombol 'Hapus' per baris dihapus
+        /*
+        function deleteAttendance(timestamp) {
+            let log = getAttendanceLog();
+
+            // Filter out the record matching the timestamp
+            const initialLength = log.length;
+            log = log.filter(record => record.timestamp !== timestamp);
+
+            if (log.length < initialLength) {
+                localStorage.setItem(STORAGE_KEY, JSON.stringify(log));
+                loadAdminData(); // Muat ulang tabel admin
+                showModal('success', 'Berhasil Dihapus!', 'Satu data absensi telah dihapus.');
+            } else {
+                showModal('error', 'Gagal Hapus!', 'Data absensi tidak ditemukan.');
+            }
+        }
+        */
+
+        // ===================================
+        //    LOGIKA ADMIN, FILTER, & REKAP
+        // ===================================
+
+        const startDateInput = document.getElementById('filter-start-date');
+        const endDateInput = document.getElementById('filter-end-date');
+        const filterButton = document.getElementById('btn-filter');
+        const exportButton = document.getElementById('btn-export-csv');
+        const tableBody = document.getElementById('attendance-table-body');
+
+        const today = new Date().toISOString().split('T')[0];
+        startDateInput.value = today;
+        endDateInput.value = today;
+
+        filterButton.addEventListener('click', loadAdminData);
+        exportButton.addEventListener('click', exportCSV);
+
+        function loadAdminData() {
+            const log = getAttendanceLog();
+            const startDate = startDateInput.value ? new Date(startDateInput.value) : null;
+            const endDate = endDateInput.value ? new Date(endDateInput.value) : null;
+            if (startDate) startDate.setHours(0, 0, 0, 0);
+            if (endDate) endDate.setHours(23, 59, 59, 999);
+
+            const filteredLog = log.filter(record => {
+                const recordDate = new Date(record.timestamp);
+                const afterStart = startDate ? recordDate >= startDate : true;
+                const beforeEnd = endDate ? recordDate <= endDate : true;
+                return afterStart && beforeEnd;
+            });
+            renderTable(filteredLog);
+        }
+
+        // [UPDATE] Memodifikasi fungsi renderTable untuk menampilkan 5 kolom dan memisah tanggal/waktu
+        function renderTable(data) {
+            // [UPDATE] Ubah colspan menjadi 5 (sesuai jumlah kolom baru)
+            if (data.length === 0) {
+                tableBody.innerHTML = `<tr><td colspan="5" class="px-6 py-4 text-center text-gray-500">Tidak ada data untuk rentang tanggal ini.</td></tr>`;
+                return;
+            }
+            tableBody.innerHTML = '';
+            data.forEach(record => {
+                const dateObj = new Date(record.timestamp);
+
+                // [BARU] Pemisahan Tanggal dan Waktu
+                const date = dateObj.toLocaleDateString('id-ID', {
+                    dateStyle: 'medium'
+                });
+                const time = dateObj.toLocaleTimeString('id-ID', {
+                    timeStyle: 'medium'
+                });
+
+                // [UPDATE] Struktur baris tabel
+                const row = `
+                    <tr>
+                        <td class="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">${record.studentId}</td>
+                        <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-700">${record.studentName}</td>
+                        <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-700">${record.studentClass || 'N/A'}</td>
+                        <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">${date}</td>
+                        <td class="px-6 py-4 whitespace-nowrap text-sm text-gray-500">${time}</td>
+                        </tr>
+                `;
+                tableBody.innerHTML += row;
+            });
+        }
+
+        // [UPDATE] Memodifikasi fungsi exportCSV untuk 4 kolom
+        function exportCSV() {
+            const log = getFilteredData();
+            if (log.length === 0) {
+                showModal('error', 'Gagal Ekspor!', 'Tidak ada data yang difilter untuk diekspor.');
+                return;
+            }
+            let csvContent = "data:text/csv;charset=utf-8,";
+            // [UPDATE] Header CSV
+            csvContent += "ID Siswa,Nama Siswa,Kelas/Jurusan,Tanggal,Waktu\r\n";
+
+            log.forEach(record => {
+                const dateObj = new Date(record.timestamp);
+                const date = dateObj.toLocaleDateString('id-ID');
+                const time = dateObj.toLocaleTimeString('id-ID');
+
+                // [UPDATE] Isi CSV
+                csvContent += `"${record.studentId}","${record.studentName}","${record.studentClass || 'N/A'}","${date}","${time}"\r\n`;
+            });
+
+            const encodedUri = encodeURI(csvContent);
+            const link = document.createElement("a");
+            link.setAttribute("href", encodedUri);
+            link.setAttribute("download", "rekap_absensi.csv");
+            document.body.appendChild(link);
+            link.click();
+            document.body.removeChild(link);
+        }
+
+        function getFilteredData() {
+            const log = getAttendanceLog();
+            const startDate = startDateInput.value ? new Date(startDateInput.value) : null;
+            const endDate = endDateInput.value ? new Date(endDateInput.value) : null;
+            if (startDate) startDate.setHours(0, 0, 0, 0);
+            if (endDate) endDate.setHours(23, 59, 59, 999);
+            return log.filter(record => {
+                const recordDate = new Date(record.timestamp);
+                const afterStart = startDate ? recordDate >= startDate : true;
+                const beforeEnd = endDate ? recordDate <= endDate : true;
+                return afterStart && beforeEnd;
+            });
+        }
+
+        // ===================================
+        //     INISIALISASI APLIKASI
+        // ===================================
+
+        document.addEventListener('DOMContentLoaded', () => {
+            // Inisialisasi scanner
+            html5QrCode = new Html5Qrcode("qr-reader");
+
+            // Tampilkan view scanner saat pertama kali dimuat
+            showView('scanner');
+
+            // Handle tombol start manual di HP
+            document.getElementById('start-scan-btn').addEventListener('click', () => {
+                startScanner();
+            });
+
+            // Listener untuk file upload
+            const fileInput = document.getElementById('qr-file-input');
+            fileInput.addEventListener('change', async e => {
+                if (e.target.files.length == 0) {
+                    return; // Tidak ada file dipilih
+                }
+
+                // Hentikan scanner kamera SEBELUM memindai file (untuk mencegah error ongoing scan)
+                console.log("Mencoba menghentikan kamera untuk memindai file...");
+                await stopScanner();
+                console.log("Kamera dihentikan, memindai file...");
+
+                const imageFile = e.target.files[0];
+
+                // Panggil metode scanFile dari library
+                html5QrCode.scanFile(imageFile, true) // true = show image in viewfinder
+                    .then(decodedText => {
+                        // Sukses! Panggil prosesor yang sama dengan kamera
+                        processScanResult(decodedText);
+
+                        // Reset input file agar bisa upload file yang sama lagi jika perlu
+                        fileInput.value = '';
+                    })
+                    .catch(err => {
+                        // Gagal scan file (misal: bukan QR, gambar rusak, dll)
+                        console.error(`Error scanning file: ${err}`);
+
+                        // Tampilkan Modal Gagal untuk upload
+                        showModal(
+                            'error',
+                            'Gagal Membaca File!',
+                            `Tidak dapat menemukan QR Code di gambar, atau gambar rusak. Error: ${err}`
+                        );
+
+                        fileInput.value = '';
+                    });
+            });
+        });
+    </script>
+</body>
+
+</html>
